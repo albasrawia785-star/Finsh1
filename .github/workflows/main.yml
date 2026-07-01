@@ -1,4 +1,4 @@
-name: Android CI/CD - Build APK
+name: Build Web App to Android APK
 
 on:
   push:
@@ -11,8 +11,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout the code
+    - name: Checkout Code
       uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -20,42 +25,46 @@ jobs:
         java-version: '17'
         distribution: 'zulu'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
-
-    - name: Inject Storage Permissions for PDF Export
+    - name: Initialize Android Wrapper (Capacitor)
       run: |
-        # البحث عن ملف المانيفست الخاص بالأندرويد لإضافة صلاحيات حفظ الـ PDF
+        # إنشاء ملف package.json إذا لم يكن موجوداً لتشغيل الأدوات
+        if [ ! -f package.json ]; then
+          npm init -y
+        fi
+        
+        # تثبيت أدوات تحويل الموقع إلى تطبيق
+        npm install @capacitor/core @capacitor/cli
+        npm install @capacitor/android
+        
+        # إعداد المشروع (اسم التطبيق واسم الحزمة)
+        # يمكنك تغيير "My Offline App" لاسم تطبيقك
+        npx cap init "My Offline App" "com.offlineapp.pos" --web-dir=. --confirm
+        
+        # إضافة منصة الأندرويد للموقع
+        npx cap add android
+
+    - name: Inject WebView Storage & Download Permissions
+      run: |
         MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
-        if [ -not -z "$MANIFEST_FILE" ]; then
-          echo "Found AndroidManifest.xml, injecting storage permissions..."
-          # إضافة صلاحيات الإنترنت والتخزين والكتابة الضرورية لتصدير الملفات
-          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' "$MANIFEST_FILE"
-          
-          # تفعيل خاصية التعامل مع الملفات القديمة والجديدة في الأندرويد
+        if [ ! -z "$MANIFEST_FILE" ]; then
+          echo "Injecting storage permissions into Manifest..."
+          # إضافة صلاحيات تخزين الملفات وحفظ الـ PDF والنسخ الاحتياطي للهاتف
+          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' "$MANIFEST_FILE"
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' "$MANIFEST_FILE"
         fi
 
-    - name: Build Debug APK
+    - name: Sync Web Files to Android
       run: |
-        SETTINGS_FILE=$(find . -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
-        
-        if [ -z "$SETTINGS_FILE" ]; then
-          echo "Error: Android project settings file not found in repository!"
-          exit 1
-        fi
-        
-        PROJECT_DIR=$(dirname "$SETTINGS_FILE")
-        echo "Successfully found Android project directory at: $PROJECT_DIR"
-        cd "$PROJECT_DIR"
-        
-        gradle wrapper
+        npx cap sync android
+
+    - name: Build APK via Gradle
+      run: |
+        cd android
         chmod +x gradlew
         ./gradlew assembleDebug
 
-    - name: Upload APK Artifact
+    - name: Upload Finished APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: school-timetable-app-debug-apk
-        path: |
-          **/build/outputs/apk/debug/*.apk
+        name: offline-app-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
