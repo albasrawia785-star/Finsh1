@@ -25,26 +25,46 @@ jobs:
         java-version: '17'
         distribution: 'zulu'
 
-    - name: Initialize Android Wrapper (Direct Root Directory)
+    - name: Extract Project Files
       run: |
-        # إنشاء ملف package.json إذا لم يكن موجوداً لتشغيل الأدوات
+        # فك ضغط ملف المشروع مباشرة في المجلد الرئيسي للسيرفر
+        ZIP_FILE=$(find . -name "*.zip" | head -n 1)
+        if [ ! -z "$ZIP_FILE" ]; then
+          echo "Found zip file: $ZIP_FILE, extracting to root..."
+          unzip -o "$ZIP_FILE" -d .
+          # حذف ملف الـ zip بعد الفك لتنظيف المجلد
+          rm "$ZIP_FILE"
+        else
+          echo "No zip file found!"
+        fi
+
+        # التحقق مما إذا تم فك الملفات داخل مجلد فرعي ونقلها للمجلد الرئيسي
+        INDEX_PATH=$(find . -name "index.html" | head -n 1)
+        if [ ! -z "$INDEX_PATH" ]; then
+          SRC_DIR=$(dirname "$INDEX_PATH")
+          if [ "$SRC_DIR" != "." ]; then
+            echo "Moving files from subfolder $SRC_DIR to root..."
+            cp -r "$SRC_DIR"/* .
+          fi
+        fi
+
+    - name: Initialize Android Wrapper (Direct Build)
+      run: |
         if [ ! -f package.json ]; then
           npm init -y
         fi
         
-        # تثبيت أدوات Capacitor
         npm install @capacitor/core @capacitor/cli
         npm install @capacitor/android
         
-        # خدعة كتابة الإعدادات مباشرة لتخطي رفض قيمة الـ webDir كـ نقطة (.)
+        # إنشاء ملف الإعدادات برمجياً لتخطي رفض النقطة (.) واستهداف المجلد الرئيسي مباشرة
         echo '{
           "appId": "com.offlineapp.pos",
-          "appName": "School Timetable App",
+          "appName": "Saydali Pro POS",
           "webDir": ".",
           "bundledWebRuntime": false
         }' > capacitor.config.json
 
-        # إضافة منصة الأندرويد للموقع مباشرة في المجلد الرئيسي
         npx cap add android
 
     - name: Inject WebView Storage & Download Permissions
@@ -52,7 +72,7 @@ jobs:
         MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
         if [ ! -z "$MANIFEST_FILE" ]; then
           echo "Injecting storage permissions into Manifest..."
-          # إضافة صلاحيات التخزين لتصدير ملفات الـ PDF والنسخ الاحتياطي للهاتف
+          # تفعيل صلاحيات التخزين الكاملة لحفظ الـ PDF والنسخ الاحتياطي
           sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' "$MANIFEST_FILE"
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' "$MANIFEST_FILE"
         fi
@@ -70,5 +90,5 @@ jobs:
     - name: Upload Finished APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: school-timetable-apk
+        name: saydali-pro-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
