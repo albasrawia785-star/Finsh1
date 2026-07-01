@@ -25,9 +25,17 @@ jobs:
         java-version: '17'
         distribution: 'zulu'
 
+    - name: Prepare Web Directory
+      run: |
+        # إنشاء مجلد www ونقل ملفات الموقع الحالية إليه ليقبلها Capacitor
+        mkdir -p www
+        find . -maxdepth 1 -type f ! -name "package*" ! -name ".*" -exec cp {} www/ \;
+        # نسخ المجلدات الفرعية للموقع إن وجدت (مثل مجلدات الصور أو التنسيقات) إلى داخل www
+        find . -maxdepth 1 -type d ! -name "." ! -name ".." ! -name ".git" ! -name ".github" ! -name "www" ! -name "node_modules" -exec cp -r {} www/ \; 2>/dev/null || true
+
     - name: Initialize Android Wrapper (Capacitor)
       run: |
-        # إنشاء ملف package.json إذا لم يكن موجوداً لتشغيل الأدوات
+        # إنشاء ملف package.json إذا لم يكن موجوداً
         if [ ! -f package.json ]; then
           npm init -y
         fi
@@ -36,10 +44,10 @@ jobs:
         npm install @capacitor/core @capacitor/cli
         npm install @capacitor/android
         
-        # إعداد المشروع تلقائياً بدون الحاجة لـ --confirm
-        npx cap init "My Offline App" "com.offlineapp.pos" --web-dir=.
+        # إعداد المشروع وتحديد مجلد الـ web-dir إلى www
+        npx cap init "My Offline App" "com.offlineapp.pos" --web-dir=www
         
-        # إضافة منصة الأندرويد للموقع
+        # إضافة منصة الأندرويد
         npx cap add android
 
     - name: Inject WebView Storage & Download Permissions
@@ -47,7 +55,7 @@ jobs:
         MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
         if [ ! -z "$MANIFEST_FILE" ]; then
           echo "Injecting storage permissions into Manifest..."
-          # إضافة صلاحيات التخزين وتحميل واستيراد الملفات
+          # إضافة صلاحيات التخزين وتحميل واستيراد الملفات من الهاتف
           sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' "$MANIFEST_FILE"
           sed -i '/<application/a \        android:requestLegacyExternalStorage="true"' "$MANIFEST_FILE"
         fi
