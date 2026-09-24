@@ -1,4 +1,4 @@
-name: Build Android APK with Military Encrypted Token
+name: Build Android APK with Persistent Signing & Auto Updates
 
 on:
   push:
@@ -47,7 +47,6 @@ jobs:
       # =========================================================================
       - name: Smart Encrypt & Inject Database Credentials
         env:
-          # إذا أردت تمرير التوكن من هنا ضعه بين علامتي التنصيص، أو اتركه فارغاً '' للاعتماد على ملفات المشروع
           RAW_TURSO_URL: ${{ secrets.TURSO_URL || '' }}
           RAW_TURSO_TOKEN: ${{ secrets.TURSO_TOKEN || '' }}
         run: |
@@ -76,21 +75,18 @@ jobs:
                   with open(aldion_path, 'r', encoding='utf-8') as f:
                       content = f.read()
 
-                  # استبدال مصفوفة التوكن المشفرة
                   content = re.sub(
                       r'const _CIPHER_TOKEN_BYTES:\s*number\[\]\s*=\s*\[[\s\S]*?\];',
                       f'const _CIPHER_TOKEN_BYTES: number[] = {json.dumps(enc_token_bytes)};',
                       content
                   )
 
-                  # استبدال مصفوفة الرابط المشفرة
                   content = re.sub(
                       r'const _CIPHER_URL_BYTES:\s*number\[\]\s*=\s*\[[\s\S]*?\];',
                       f'const _CIPHER_URL_BYTES: number[] = {json.dumps(enc_url_bytes)};',
                       content
                   )
 
-                  # تصفير أي تجاوز يدوي لضمان الاعتماد على التشفير التلقائي
                   content = re.sub(r'export const MANUAL_OVERRIDE_TURSO_URL:\s*string\s*=\s*[\"|\'].*?[\"|\'];', 'export const MANUAL_OVERRIDE_TURSO_URL: string = \"\";', content)
                   content = re.sub(r'export const MANUAL_OVERRIDE_TURSO_TOKEN:\s*string\s*=\s*[\"|\'].*?[\"|\'];', 'export const MANUAL_OVERRIDE_TURSO_TOKEN: string = \"\";', content)
 
@@ -109,7 +105,6 @@ jobs:
         with:
           node-version: '22'
 
-      # 1. التخزين المؤقت لتسريع البناء
       - name: Cache Node Modules
         uses: actions/cache@v4
         with:
@@ -125,12 +120,10 @@ jobs:
       - name: Build Web Application (With Obfuscation)
         run: npm run build
 
-      # 2. تثبيت الحزم الأصلية للأندرويد
       - name: Install Native Capacitor Plugins
         run: |
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/filesystem@latest @capacitor/share@latest @capacitor/splash-screen@latest @capacitor/haptics@latest @capacitor-community/sqlite@latest
 
-      # 3. الاعتراض الشامل لجميع التنزيلات وتحويلها لقائمة المشاركة الرسمية بالأندرويد
       - name: Inject Universal Native Download & Share Interceptor
         run: |
           cat << 'EOF' > dist/inject_share.js
@@ -204,7 +197,6 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      # 4. التسريع العتادي وإضافة كامل الصلاحيات لملفات أندرويد
       - name: Optimize Native Android Manifest & Full Storage Permissions
         run: |
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
@@ -213,7 +205,6 @@ jobs:
             sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />' $MANIFEST_PATH
           fi
 
-      # 5. توليد الأيقونات بجميع قياسات الأندرويد
       - name: Generate Multi-Resolution App Icons
         run: |
           python3 -m pip install pillow
@@ -268,20 +259,38 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      # 6. البناء والتوقيع الرقمي للـ APK وتسميته بتاريخ اليوم
-      - name: Build and Sign Release APK with Dynamic Naming
+      # =========================================================================
+      # 🔐 6. التوقيع الرقمي بمفتاح ثابت موحد وزيادة الإصدار التلقائية
+      # =========================================================================
+      - name: Decode Keystore and Build Signed Release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           cd android
           chmod +x gradlew
-          
-          keytool -genkey -v -keystore release.keystore -alias saydali_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "SaydaliPass123" -keypass "SaydaliPass123" -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" || true
 
+          # 1. استرجاع أو تثبيت التوقيع الدائم الموحد
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "🔑 استخدام مفتاح التوقيع الثابت من GitHub Secrets..."
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          else
+            echo "⚠️ لم يتم العثور على KEYSTORE_BASE64، سيتم الاعتماد على المفتاح الموحد..."
+            keytool -genkey -v -keystore release.keystore -alias saydali_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "SaydaliPass123" -keypass "SaydaliPass123" -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" || true
+          fi
+
+          # 2. زيادة رقم الإصدار تلقائياً (versionCode) لضمان القبول المباشر للتحديث على هواتف المستخدمين
+          RUN_NUM=${{ github.run_number }}
+          if [ -f "app/build.gradle" ]; then
+            sed -i "s/versionCode 1/versionCode $RUN_NUM/g" app/build.gradle || true
+          fi
+
+          # 3. تجميع حزمة الأندرويد
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
+          # 4. التوقيع الرقمي النهائي لملف الـ APK
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          
           DATE_STR=$(date +'%Y-%m-%d')
-          FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}.apk"
+          FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
           
           $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:"SaydaliPass123" --key-pass pass:"SaydaliPass123" --out "app/build/outputs/apk/release/${FINAL_APK_NAME}" app/build/outputs/apk/release/app-release-unsigned.apk
 
