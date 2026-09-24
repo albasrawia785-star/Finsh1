@@ -260,34 +260,26 @@ jobs:
             ${{ runner.os }}-gradle-
 
       # =========================================================================
-      # 🔐 6. التوقيع الرقمي بمفتاح ثابت موحد وزيادة الإصدار التلقائية
+      # 🔐 6. إنشاء مفتاح التوقيع الصحيح وبناء APK نقي وموقع 100%
       # =========================================================================
-      - name: Decode Keystore and Build Signed Release APK
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: Generate Keystore and Build Signed Release APK
         run: |
           cd android
           chmod +x gradlew
 
-          # 1. استرجاع أو تثبيت التوقيع الدائم الموحد
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "🔑 استخدام مفتاح التوقيع الثابت من GitHub Secrets..."
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-          else
-            echo "⚠️ لم يتم العثور على KEYSTORE_BASE64، سيتم الاعتماد على المفتاح الموحد..."
-            keytool -genkey -v -keystore release.keystore -alias saydali_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "SaydaliPass123" -keypass "SaydaliPass123" -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" || true
-          fi
+          # 1. إنشاء مفتاح توقيع جديد سليم وغير تالف بحجم RSA 2048
+          keytool -genkeypair -v -keystore release.keystore -alias saydali_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "SaydaliPass123" -keypass "SaydaliPass123" -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" -storetype PKCS12
 
-          # 2. زيادة رقم الإصدار تلقائياً (versionCode) لضمان القبول المباشر للتحديث على هواتف المستخدمين
+          # 2. رفع رقم الإصدار تلقائياً (versionCode)
           RUN_NUM=${{ github.run_number }}
           if [ -f "app/build.gradle" ]; then
             sed -i "s/versionCode 1/versionCode $RUN_NUM/g" app/build.gradle || true
           fi
 
-          # 3. تجميع حزمة الأندرويد
+          # 3. بناء الـ APK
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
-          # 4. التوقيع الرقمي النهائي لملف الـ APK
+          # 4. توقيع الـ APK النهائي
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
           DATE_STR=$(date +'%Y-%m-%d')
           FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
