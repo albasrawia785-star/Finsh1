@@ -263,14 +263,13 @@ jobs:
             ${{ runner.os }}-gradle-
 
       # =========================================================================
-      # 🔐 فك تشفير مفتاح التوقيع بأمان مع إصلاح الحشو تلقائياً (Auto-Padding)
+      # 🔐 فك تشفير مفتاح التوقيع بأمان وتوقيع الـ APK
       # =========================================================================
       - name: Decode Keystore and Build Signed Release APK
         run: |
           cd android
           chmod +x gradlew
 
-          # تنظيف وفك تشفير الـ Base64 بواسطة ملف بايثون مؤقت لضمان حماية الاقتباسات
           cat << 'EOF' > decode_keystore.py
           import base64, re
 
@@ -314,13 +313,13 @@ jobs:
           "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
           "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks release.keystore \ 
-            --ks-pass pass:"MyStrongPass2026" \ 
-            --key-pass pass:"MyStrongPass2026" \ 
-            --ks-key-alias "my_alias" \ 
-            --v1-signing-enabled true \ 
-            --v2-signing-enabled true \ 
-            --v3-signing-enabled true \ 
+            --ks release.keystore \
+            --ks-pass pass:MyStrongPass2026 \
+            --key-pass pass:MyStrongPass2026 \
+            --ks-key-alias my_alias \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
             --out "$FINAL_APK_PATH" "$ALIGNED_APK"
 
       - name: Upload Signed APK
