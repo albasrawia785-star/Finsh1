@@ -1,4 +1,4 @@
-name: Build & Sign Certified Android APK (Fixed Keystore)
+name: Build & Sign Certified Android APK
 
 on:
   push:
@@ -235,11 +235,9 @@ jobs:
           java-version: '21'
 
       # =========================================================================
-      # 🔐 فك تشفير المفتاح الدائم الثابت الموثق والتوقيع به
+      # 🔐 إنشاء مفتاح التوقيع مباشرة والتوقيع التلقائي بضمان 100%
       # =========================================================================
-      - name: Decode Fixed Keystore & Sign APK
-        env:
-          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      - name: Generate Fresh Keystore & Sign APK
         run: |
           cd android
           chmod +x gradlew
@@ -250,8 +248,17 @@ jobs:
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # تنظيف نص الـ Base64 من المسافات أو الأسطر الفارغة قبل فك التشفير
-          echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > release_fixed.keystore
+          # إنشاء Keystore جديد ونظيف في البيئة المحلية للبناء
+          keytool -genkeypair -v \
+            -keystore release_direct.keystore \
+            -alias my_alias \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "MyStrongPass2026" \
+            -keypass "MyStrongPass2026" \
+            -dname "CN=Daftar App, OU=Dev, O=App, L=Baghdad, C=IQ" \
+            -storetype PKCS12
 
           # بناء التطبيق
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
@@ -267,9 +274,9 @@ jobs:
 
           "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-          # التوقيع بالمفتاح الموحد
+          # التوقيع بالمفتاح
           "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks release_fixed.keystore \
+            --ks release_direct.keystore \
             --ks-pass pass:"MyStrongPass2026" \
             --key-pass pass:"MyStrongPass2026" \
             --ks-key-alias "my_alias" \
