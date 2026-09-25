@@ -1,4 +1,4 @@
-name: Build & Sign Certified Android APK
+name: Build Android APK with Embedded Persistent Key
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Inject Database Credentials
+      - name: Smart Encrypt & Inject Database Credentials
         env:
           RAW_TURSO_URL: ${{ secrets.TURSO_URL || '' }}
           RAW_TURSO_TOKEN: ${{ secrets.TURSO_TOKEN || '' }}
@@ -106,31 +106,24 @@ jobs:
         run: |
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/filesystem@latest @capacitor/share@latest @capacitor/splash-screen@latest @capacitor/haptics@latest @capacitor-community/sqlite@latest
 
-      - name: Inject Native Download & Share Interceptor
+      - name: Inject Universal Native Download & Share Interceptor
         run: |
           cat << 'EOF' > dist/inject_share.js
           (function() {
             const originalCreate = URL.createObjectURL;
             URL.createObjectURL = function(blob) {
               const url = originalCreate.call(this, blob);
-              if (blob) {
-                const isJson = blob.type.includes('json') || blob.type.includes('octet') || blob.type.includes('text');
-                const isPdf = blob.type.includes('pdf');
-                
-                if (isJson || isPdf) {
-                  const reader = new FileReader();
-                  reader.onloadend = async function() {
-                    if (reader.result) {
-                      const base64Data = reader.result.split(',')[1];
-                      if (base64Data) {
-                        const ext = isPdf ? 'pdf' : 'json';
-                        const prefix = isPdf ? 'Report' : 'Backup';
-                        triggerNativeShare(base64Data, prefix, ext, blob.type);
-                      }
+              if (blob && (blob.type.includes('json') || blob.type.includes('octet') || blob.type.includes('text'))) {
+                const reader = new FileReader();
+                reader.onloadend = async function() {
+                  if (reader.result) {
+                    const base64Data = reader.result.split(',')[1];
+                    if (base64Data) {
+                      triggerNativeShare(base64Data);
                     }
-                  };
-                  reader.readAsDataURL(blob);
-                }
+                  }
+                };
+                reader.readAsDataURL(blob);
               }
               return url;
             };
@@ -140,19 +133,14 @@ jobs:
               if (anchor && anchor.href && anchor.href.startsWith('data:')) {
                 const parts = anchor.href.split(',');
                 if (parts.length > 1) {
-                  const mimeMatch = parts[0].match(/:(.*?);/);
-                  const mimeType = mimeMatch ? mimeMatch[1] : '';
-                  const isPdf = mimeType.includes('pdf') || (anchor.download && anchor.download.endsWith('.pdf'));
-                  const ext = isPdf ? 'pdf' : 'json';
-                  const prefix = isPdf ? 'Report' : 'Backup';
-                  triggerNativeShare(parts[1], prefix, ext, mimeType);
+                  triggerNativeShare(parts[1]);
                 }
               }
             }, true);
 
-            async function triggerNativeShare(base64Data, prefix, ext, mimeType) {
+            async function triggerNativeShare(base64Data) {
               const dateStr = new Date().toISOString().slice(0, 10);
-              const fileName = `Daftar-Aldeyon-${prefix}-${dateStr}.${ext}`;
+              const fileName = `Daftar-Aldeyon-Backup-${dateStr}.json`;
 
               try {
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
@@ -165,10 +153,10 @@ jobs:
                   });
 
                   await Share.share({
-                    title: ext === 'pdf' ? 'تقرير PDF - دفتر الديون' : 'النسخة الاحتياطية',
-                    text: ext === 'pdf' ? 'ملف تقرير الديون والأقساط' : 'ملف النسخة الاحتياطية - دفتر الديون',
+                    title: 'النسخة الاحتياطية',
+                    text: 'ملف النسخة الاحتياطية - دفتر الديون',
                     url: savedFile.uri,
-                    dialogTitle: 'حفظ أو مشاركة الملف'
+                    dialogTitle: 'حفظ أو مشاركة النسخة الاحتياطية'
                   });
                 }
               } catch (err) {
@@ -191,15 +179,15 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Safe Permissions Configuration
+      - name: Optimize Native Android Manifest & Full Storage Permissions
         run: |
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
             sed -i 's/<application/<application android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true"/g' $MANIFEST_PATH
-            sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.CAMERA" />' $MANIFEST_PATH
+            sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />' $MANIFEST_PATH
           fi
 
-      - name: Generate App Icons
+      - name: Generate Multi-Resolution App Icons
         run: |
           python3 -m pip install pillow
           python3 -c "
@@ -235,12 +223,18 @@ jobs:
           java-version: '21'
 
       # =========================================================================
-      # 🔐 إنشاء مفتاح التوقيع مباشرة والتوقيع التلقائي بضمان 100%
+      # 🔐 التوقيع المباشر باستخدام نص المفتاح الدائم
       # =========================================================================
-      - name: Generate Fresh Keystore & Sign APK
+      - name: Decode Exact Keystore & Sign Release APK
         run: |
           cd android
           chmod +x gradlew
+
+          cat << 'EOF' > keystore_base64.txt
+          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
+          EOF
+
+          tr -d '\r\n ' < keystore_base64.txt | base64 -d > release.keystore
 
           RUN_NUM=${{ github.run_number }}
           if [ -f "app/build.gradle" ]; then
@@ -248,19 +242,6 @@ jobs:
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # إنشاء Keystore جديد ونظيف في البيئة المحلية للبناء
-          keytool -genkeypair -v \
-            -keystore release_direct.keystore \
-            -alias my_alias \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass "MyStrongPass2026" \
-            -keypass "MyStrongPass2026" \
-            -dname "CN=Daftar App, OU=Dev, O=App, L=Baghdad, C=IQ" \
-            -storetype PKCS12
-
-          # بناء التطبيق
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
@@ -274,9 +255,8 @@ jobs:
 
           "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-          # التوقيع بالمفتاح
           "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks release_direct.keystore \
+            --ks release.keystore \
             --ks-pass pass:"MyStrongPass2026" \
             --key-pass pass:"MyStrongPass2026" \
             --ks-key-alias "my_alias" \
