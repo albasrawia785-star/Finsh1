@@ -1,4 +1,4 @@
-name: Generate Key and Build Certified Android APK
+name: Build & Sign Certified Android APK (Fixed Keystore)
 
 on:
   push:
@@ -235,29 +235,11 @@ jobs:
           java-version: '21'
 
       # =========================================================================
-      # 🔑 1. إنشاء مفتاح ثابت وطباعة الكود النصي (Base64) الخاص به
+      # 🔐 فك تشفير المفتاح الدائم الثابت الموثق والتوقيع به
       # =========================================================================
-      - name: Generate Permanent Keystore and Output Base64
-        run: |
-          keytool -genkeypair -v \
-            -keystore my_release_key.keystore \
-            -alias my_alias \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass "MyStrongPass2026" \
-            -keypass "MyStrongPass2026" \
-            -dname "CN=Daftar App, OU=Dev, O=App, L=Baghdad, C=IQ" \
-            -storetype PKCS12
-
-          echo "==================== COPY YOUR BASE64 KEY BELOW ===================="
-          base64 -w 0 my_release_key.keystore
-          echo -e "\n===================================================================="
-
-      # =========================================================================
-      # 🚀 2. بناء وتوقيع التطبيق بالمفتاح الجديد مباشرة
-      # =========================================================================
-      - name: Build & Sign APK
+      - name: Decode Fixed Keystore & Sign APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           cd android
           chmod +x gradlew
@@ -268,6 +250,10 @@ jobs:
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
+          # فك تشفير المفتاح الثابت الحقيقي
+          echo "$KEYSTORE_BASE64" | base64 -d > release_fixed.keystore
+
+          # بناء التطبيق
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
@@ -281,8 +267,9 @@ jobs:
 
           "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
+          # التوقيع بالمفتاح الموحد
           "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks ../my_release_key.keystore \
+            --ks release_fixed.keystore \
             --ks-pass pass:"MyStrongPass2026" \
             --key-pass pass:"MyStrongPass2026" \
             --ks-key-alias "my_alias" \
