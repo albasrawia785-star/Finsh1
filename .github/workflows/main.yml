@@ -235,21 +235,19 @@ jobs:
           java-version: '21'
 
       # =========================================================================
-      # 🔄 التوقيع الحتمي ورفع رقم الإصدار التلقائي (مصلَح بالكامل)
+      # 🔄 التوقيع الحتمي ورفع رقم الإصدار التلقائي (مُصحّح بالمسافات والأدوات)
       # =========================================================================
       - name: Build & Officially Sign Release APK
         run: |
           cd android
           chmod +x gradlew
 
-          # 1. زيادة versionCode و versionName مع كل عملية بناء جديدة
           RUN_NUM=${{ github.run_number }}
           if [ -f "app/build.gradle" ]; then
             sed -i "s/versionCode 1/versionCode $RUN_NUM/g" app/build.gradle || true
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # 2. توليد المفتاح بمعلمات ثابتة وحتمية
           keytool -genkeypair -v \
             -keystore persistent_app_key.keystore \
             -alias daftar_fixed_alias \
@@ -261,11 +259,9 @@ jobs:
             -dname "CN=Daftar Aldeyon, OU=Software, O=Daftar Software, L=Basra, ST=Basra, C=IQ" \
             -storetype PKCS12
 
-          # 3. بناء تطبيق Release
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
-          # 4. تحديد مسار أدوات التوقيع بشكل صحّاح وبدون أخطاء
-          BUILD_TOOLS_DIR=$(find$ANDROID_HOME/build-tools -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
           
           UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED_APK="app/build/outputs/apk/release/app-release-aligned.apk"
@@ -274,8 +270,8 @@ jobs:
           FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
           FINAL_APK_PATH="app/build/outputs/apk/release/${FINAL_APK_NAME}"
 
-          # 5. محاذاة الملف Zipalign وتوقيعه عبر apksigner
-          $BUILD_TOOLS_DIR/zipalign -v -p 4$UNSIGNED_APK $ALIGNED_APK$BUILD_TOOLS_DIR/apksigner sign --ks persistent_app_key.keystore --ks-pass pass:"DaftarFixedPass2026" --key-pass pass:"DaftarFixedPass2026" --out $FINAL_APK_PATH$ALIGNED_APK
+          "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" sign --ks persistent_app_key.keystore --ks-pass pass:"DaftarFixedPass2026" --key-pass pass:"DaftarFixedPass2026" --out "$FINAL_APK_PATH" "$ALIGNED_APK"
 
       - name: Upload Officially Signed APK
         uses: actions/upload-artifact@v4
