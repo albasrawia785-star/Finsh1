@@ -1,4 +1,4 @@
-Name: Generate Key and Build Certified Android APK
+name: Generate Key and Build Certified Android APK
 
 on:
   push:
