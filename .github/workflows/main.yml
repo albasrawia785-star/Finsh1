@@ -250,8 +250,8 @@ jobs:
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # فك تشفير المفتاح الثابت الحقيقي
-          echo "$KEYSTORE_BASE64" | base64 -d > release_fixed.keystore
+          # تنظيف نص الـ Base64 من المسافات أو الأسطر الفارغة قبل فك التشفير
+          echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > release_fixed.keystore
 
           # بناء التطبيق
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
