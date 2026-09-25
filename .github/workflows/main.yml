@@ -1,10 +1,10 @@
-name: Extract Keystore Base64 for Persistent Signing
+name: Generate NEW Keystore Base64
 
 on:
-  workflow_dispatch: # يتيح لك تشغيل هذا السكريبت يدوياً بنقرة زر من تبويب Actions
+  workflow_dispatch:
 
 jobs:
-  generate-keystore:
+  generate-new-key:
     runs-on: ubuntu-latest
 
     steps:
@@ -14,12 +14,19 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - name: Generate Keystore & Convert to Base64
+      - name: Generate Fresh Keystore and Output Base64
         run: |
-          # 1. إنشاء ملف المفتاح بمعايير أمان عالية وببيانات ثابته
-          keytool -genkeypair -v -keystore release.keystore -alias saydali_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "SaydaliPass123" -keypass "SaydaliPass123" -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" -storetype PKCS12
+          keytool -genkeypair -v \
+            -keystore new_release.keystore \
+            -alias saydali_key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "SaydaliPass123" \
+            -keypass "SaydaliPass123" \
+            -dname "CN=DaftarAldeyon, OU=Dev, O=App, L=Basra, S=Basra, C=IQ" \
+            -storetype PKCS12
 
-          # 2. طباعة النص المشفر بصيغة Base64 لتسهيل النسخ
-          echo "==================== COPY START ===================="
-          base64 -w 0 release.keystore
-          echo -e "\n==================== COPY END ===================="
+          echo "==================== NEW KEYSTART ===================="
+          base64 -w 0 new_release.keystore
+          echo -e "\n==================== NEW KEYEND ===================="
