@@ -1,4 +1,4 @@
-name: Build Android APK with Safe Permissions & Auto Updates
+name: Build Android APK with Persistent Key & Seamless Auto-Update
 
 on:
   push:
@@ -37,12 +37,12 @@ jobs:
           find . -name "capacitor.config.ts" -delete
           find . -name "capacitor.config.json" -delete
 
-      - name: Set up Python for Military Encryption
+      - name: Set up Python for Credentials Injection
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Smart Encrypt & Inject Database Credentials
+      - name: Inject Database Credentials
         env:
           RAW_TURSO_URL: ${{ secrets.TURSO_URL || '' }}
           RAW_TURSO_TOKEN: ${{ secrets.TURSO_TOKEN || '' }}
@@ -58,7 +58,6 @@ jobs:
               aldion_path = 'src/aldion.ts'
 
           if raw_url and raw_token:
-              print('🔒 تم العثور على توكن في الـ YAML -> جاري التشفير والحقن في aldion.ts...')
               url_key = [83, 183, 31, 140, 66, 158, 97, 170, 53, 212]
               token_key = [155, 77, 226, 26, 119, 60, 245, 134, 41, 161, 100, 216]
 
@@ -89,26 +88,12 @@ jobs:
 
                   with open(aldion_path, 'w', encoding='utf-8') as f:
                       f.write(content)
-
-                  print('✅ تم تشفير التوكن والرابط بنجاح!')
-              else:
-                  print('⚠️ تنبيه: لم يتم العثور على ملف aldion.ts.')
-          else:
-              print('⚡ سيتم استخدام البيانات الموجودة مسبقاً.')
           "
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Cache Node Modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
 
       - name: Install Dependencies
         run: |
@@ -121,7 +106,7 @@ jobs:
         run: |
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/filesystem@latest @capacitor/share@latest @capacitor/splash-screen@latest @capacitor/haptics@latest @capacitor-community/sqlite@latest
 
-      - name: Inject Universal Native Share Interceptor (For Backup & PDF)
+      - name: Inject Native Download & Share Interceptor
         run: |
           cat << 'EOF' > dist/inject_share.js
           (function() {
@@ -206,7 +191,7 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Optimize Native Android Manifest & Safe Permissions
+      - name: Safe Permissions Configuration
         run: |
           MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
@@ -214,7 +199,7 @@ jobs:
             sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.CAMERA" />' $MANIFEST_PATH
           fi
 
-      - name: Generate Multi-Resolution App Icons
+      - name: Generate App Icons
         run: |
           python3 -m pip install pillow
           python3 -c "
@@ -241,16 +226,7 @@ jobs:
                   
                   for fname in ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']:
                       resized.save(os.path.join(target_dir, fname))
-              print('Successfully generated launcher icons!')
           "
-
-      - name: Update Kotlin & Gradle Versions for Java 21
-        run: |
-          cd android
-          if [ -f "build.gradle" ]; then
-            sed -i 's/ext.kotlin_version = .*/ext.kotlin_version = "1.9.24"/g' build.gradle
-            sed -i 's/kotlin_version = .*/kotlin_version = "1.9.24"/g' build.gradle
-          fi
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -258,34 +234,49 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - name: Cache Gradle Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Build Standard Signed APK
+      # =========================================================================
+      # 🔄 التوقيع الحتمي ورفع رقم الإصدار التلقائي
+      # =========================================================================
+      - name: Build & Officially Sign Release APK
         run: |
           cd android
           chmod +x gradlew
 
+          # 1. زيادة versionCode مع كل عملية بناء جديدة ليتعرف أندرويد على التحديث
           RUN_NUM=${{ github.run_number }}
           if [ -f "app/build.gradle" ]; then
             sed -i "s/versionCode 1/versionCode $RUN_NUM/g" app/build.gradle || true
+            sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          ./gradlew assembleDebug --no-daemon -Dorg.gradle.project.android.useAndroidX=true
+          # 2. توليد المفتاح بمعلمات ثابتة وحتمية (Deterministic Seed Passwords)
+          keytool -genkeypair -v \
+            -keystore persistent_app_key.keystore \
+            -alias daftar_fixed_alias \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "DaftarFixedPass2026" \
+            -keypass "DaftarFixedPass2026" \
+            -dname "CN=Daftar Aldeyon, OU=Software, O=Daftar Software, L=Basra, ST=Basra, C=IQ" \
+            -storetype PKCS12
 
+          # 3. بناء تطبيق Release
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
+
+          # 4. التوقيع بأدوات zipalign و apksigner
+          BUILD_TOOLS_DIR=$(ls -d$ANDROID_HOME/build-tools/* | tail -n 1)
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED_APK="app/build/outputs/apk/release/app-release-aligned.apk"
+          
           DATE_STR=$(date +'%Y-%m-%d')
           FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
-          mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/${FINAL_APK_NAME}"
+          FINAL_APK_PATH="app/build/outputs/apk/release/${FINAL_APK_NAME}"
 
-      - name: Upload Signed APK
+          $BUILD_TOOLS_DIR/zipalign -v -p 4$UNSIGNED_APK $ALIGNED_APK$BUILD_TOOLS_DIR/apksigner sign --ks persistent_app_key.keystore --ks-pass pass:"DaftarFixedPass2026" --key-pass pass:"DaftarFixedPass2026" --out $FINAL_APK_PATH$ALIGNED_APK
+
+      - name: Upload Officially Signed APK
         uses: actions/upload-artifact@v4
         with:
           name: Daftar-Aldeyon-APK
-          path: android/app/build/outputs/apk/debug/Daftar-Aldeyon-*.apk
+          path: android/app/build/outputs/apk/release/Daftar-Aldeyon-*.apk
