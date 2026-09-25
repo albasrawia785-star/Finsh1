@@ -1,4 +1,4 @@
-name: Build Certified Android APK
+Name: Generate Key and Build Certified Android APK
 
 on:
   push:
@@ -235,9 +235,29 @@ jobs:
           java-version: '21'
 
       # =========================================================================
-      # 🚀 السر هنا: إنشاء شهادة رسمية ذات معايير متوافقة مع Play Protect واستخدام apksigner بصيغة V2/V3
+      # 🔑 1. إنشاء مفتاح ثابت وطباعة الكود النصي (Base64) الخاص به
       # =========================================================================
-      - name: Generate Production-Grade Key & Sign APK
+      - name: Generate Permanent Keystore and Output Base64
+        run: |
+          keytool -genkeypair -v \
+            -keystore my_release_key.keystore \
+            -alias my_alias \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "MyStrongPass2026" \
+            -keypass "MyStrongPass2026" \
+            -dname "CN=Daftar App, OU=Dev, O=App, L=Baghdad, C=IQ" \
+            -storetype PKCS12
+
+          echo "==================== COPY YOUR BASE64 KEY BELOW ===================="
+          base64 -w 0 my_release_key.keystore
+          echo -e "\n===================================================================="
+
+      # =========================================================================
+      # 🚀 2. بناء وتوقيع التطبيق بالمفتاح الجديد مباشرة
+      # =========================================================================
+      - name: Build & Sign APK
         run: |
           cd android
           chmod +x gradlew
@@ -248,19 +268,6 @@ jobs:
             sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # إنشاء مفتاح توقيع ذو معايير أمان معتمدة (RSA 2048 مع تفاصيل كاملة للمطور)
-          keytool -genkeypair -v \
-            -keystore official_release.keystore \
-            -alias daftar_alias \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass "DaftarSecretPass2026" \
-            -keypass "DaftarSecretPass2026" \
-            -dname "CN=Daftar Aldeyon App, OU=Software, O=Daftar, L=Baghdad, C=IQ" \
-            -storetype PKCS12
-
-          # بناء التطبيق
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
           BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
@@ -272,15 +279,13 @@ jobs:
           FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
           FINAL_APK_PATH="app/build/outputs/apk/release/${FINAL_APK_NAME}"
 
-          # المحاذاة الشجرية للملف
           "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-          # التوقيع الرسمي المزدوج (V2 + V3 Signatures) لتخطي Play Protect
           "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks official_release.keystore \
-            --ks-pass pass:"DaftarSecretPass2026" \
-            --key-pass pass:"DaftarSecretPass2026" \
-            --ks-key-alias "daftar_alias" \
+            --ks ../my_release_key.keystore \
+            --ks-pass pass:"MyStrongPass2026" \
+            --key-pass pass:"MyStrongPass2026" \
+            --ks-key-alias "my_alias" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
