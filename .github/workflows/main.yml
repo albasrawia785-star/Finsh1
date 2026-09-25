@@ -1,4 +1,4 @@
-Name: Extract Keystore Base64 for Persistent Signing
+name: Extract Keystore Base64 for Persistent Signing
 
 on:
   workflow_dispatch: # يتيح لك تشغيل هذا السكريبت يدوياً بنقرة زر من تبويب Actions
