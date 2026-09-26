@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً بنقرة زر من GitHub
+  workflow_dispatch:
 
 jobs:
   build:
@@ -37,20 +37,17 @@ jobs:
           find . -name "capacitor.config.ts" -delete
           find . -name "capacitor.config.json" -delete
 
-      - name: Set up Python
+      - name: Set up Python for Military Encryption
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      # =========================================================================
-      # 🛡️ نظام التشفير الذكي: يشفر إذا وجد توكن، أو يترك الملفات كما هي
-      # =========================================================================
       - name: Smart Encrypt & Inject Database Credentials
         env:
           RAW_TURSO_URL: ${{ secrets.TURSO_URL || '' }}
           RAW_TURSO_TOKEN: ${{ secrets.TURSO_TOKEN || '' }}
         run: |
-          cat << 'EOF' > encrypt_db.py
+          python3 -c "
           import os, re, json
 
           raw_url = os.environ.get('RAW_TURSO_URL', '').strip()
@@ -98,10 +95,7 @@ jobs:
                   print('⚠️ تنبيه: لم يتم العثور على ملف aldion.ts.')
           else:
               print('⚡ لم يتم إدخال توكن في الـ YAML -> سيتم استخدام التوكن وقاعدة البيانات الموجودة مسبقاً داخل ملفات المشروع.')
-          EOF
-
-          python3 encrypt_db.py
-          rm encrypt_db.py
+          "
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -263,56 +257,40 @@ jobs:
             ${{ runner.os }}-gradle-
 
       # =========================================================================
-      # 🔐 إنشاء Keystore ديناميكي سليم 100% وبناء وتوقيع الـ APK
+      # 🔐 6. التوقيع باستخدام المفتاح الدائم الثابت (Persistent Keystore)
       # =========================================================================
-      - name: Generate Fresh Keystore and Build Signed Release APK
+      - name: Sign Release APK with Persistent Key
         run: |
           cd android
           chmod +x gradlew
 
-          # إنشاء مفتاح Keystore حقيقي متوافق مع Android 100% لضمان عدم التلف
-          keytool -genkeypair -v \
-            -keystore release.keystore \
-            -alias my_alias \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass MyStrongPass2026 \
-            -keypass MyStrongPass2026 \
-            -dname "CN=DaftarAldeyon, OU=App, O=Daftar, L=City, S=State, C=US"
+          # 1. نسخ المفتاح الدائم الثابت من جذر المشروع
+          if [ -f "../daftar_release.keystore" ]; then
+            cp ../daftar_release.keystore release.keystore
+            echo "✅ تم العثور على مفتاح التوقيع الثابت واستخدامه!"
+          elif [ -f "../release.keystore" ]; then
+            cp ../release.keystore release.keystore
+            echo "✅ تم العثور على مفتاح التوقيع الثابت واستخدامه!"
+          else
+            echo "⚠️ تنبيه: لم يتم العثور على المفتاح الثابت، جاري التوليد كخطة بديلة..."
+            keytool -genkeypair -v -keystore release.keystore -alias daftar_key -keyalg RSA -keysize 2048 -validity 10000 -storepass "DaftarPass2026" -keypass "DaftarPass2026" -dname "CN=DaftarAldeyon, OU=App, O=Daftar, L=Baghdad, S=Baghdad, C=IQ" -storetype PKCS12
+          fi
 
-          # رفع رقم الإصدار تلقائياً
+          # 2. رفع رقم الإصدار تلقائياً (versionCode)
           RUN_NUM=${{ github.run_number }}
           if [ -f "app/build.gradle" ]; then
             sed -i "s/versionCode 1/versionCode $RUN_NUM/g" app/build.gradle || true
-            sed -i "s/versionName \"1.0\"/versionName \"1.0.$RUN_NUM\"/g" app/build.gradle || true
           fi
 
-          # بناء الـ APK
+          # 3. بناء الـ APK
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.project.android.useAndroidX=true
 
-          # العثور على مسار build-tools للتوقيع والمحاذاة
-          BUILD_TOOLS_DIR=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
-          
-          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
-          ALIGNED_APK="app/build/outputs/apk/release/app-release-aligned.apk"
-          
+          # 4. توقيع الـ APK النهائي بالمفتاح الثابت
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
           DATE_STR=$(date +'%Y-%m-%d')
           FINAL_APK_NAME="Daftar-Aldeyon-${DATE_STR}-v${RUN_NUM}.apk"
-          FINAL_APK_PATH="app/build/outputs/apk/release/${FINAL_APK_NAME}"
-
-          # محاذاة وتوقيع الـ APK
-          "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
-
-          "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks release.keystore \
-            --ks-pass pass:MyStrongPass2026 \
-            --key-pass pass:MyStrongPass2026 \
-            --ks-key-alias my_alias \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out "$FINAL_APK_PATH" "$ALIGNED_APK"
+          
+          $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:"DaftarPass2026" --key-pass pass:"DaftarPass2026" --out "app/build/outputs/apk/release/${FINAL_APK_NAME}" app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
